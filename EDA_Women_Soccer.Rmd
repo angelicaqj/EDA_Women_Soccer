@@ -1,0 +1,244 @@
+---
+title: "EDA Soccer Women's League"
+author: "Angelicaqj"
+date: "5/23/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyverse)
+```
+
+
+```{r}
+#install.packages("readr")
+library(readr)
+
+# read the csv file
+soccer <- read_csv("spi_matches.csv")
+
+# look at the structure of the data to see the data types of each variable if they are correct
+str(soccer)
+
+#It seems that league is a character and it can be converted as a factor
+soccer$league <- as.factor(soccer$league)
+
+#There are a few variables with missing values that can be remove it since they will not be part of the EDA and with this in mind, 
+# we can subset the data and select only the columns for the EDA
+
+sub_soccer <- subset(soccer, select = c(1,4,5,6,7,8,9,10,11,16,17))
+
+# what about to know how many unique leagues and teams are in the dataset?
+n_distinct(sub_soccer$league)
+n_distinct(sub_soccer$team1)
+```
+
+Starting the exploratory graphics by comparing the number of teams in each league between two different years
+
+```{r}
+# transforming the data to know the total of teams in 2016
+distinct_teams_16 <- sub_soccer %>% 
+  group_by(league) %>% 
+  arrange(desc(league)) %>% 
+  filter(season == 2016) %>% 
+  distinct(team1) %>% 
+  count(league)
+
+# create the visualization to know the total teams in 2016
+ggplot(distinct_teams_16, aes(x = n, y = league, )) + geom_bar(stat = "identity")
+
+# transforming the data to know the total of teams in 2020
+distinct_teams_20 <- sub_soccer %>% 
+  group_by(league) %>% 
+  arrange(desc(league)) %>% 
+  filter(season == 2020) %>% 
+  distinct(team1) %>% 
+  count(league)
+
+# create the visualization to know the total teams in 2020 
+ggplot(distinct_teams_20, aes(x = n, y = league, )) + geom_bar(stat = "identity")
+```
+
+We can notice there are more leagues in 2020 than 2016. There are few leagues from 2016 that turn into 2 categories in 2020, as an example Italy Serie A and Italy Serie B. Also, there are new leagues that were not included in 2016 but those new leagues were founded long time ago.
+
+I can improve the visualizations above, to make it clearer.
+
+```{r}
+ggplot(distinct_teams_16, aes(x = n, y = league, fill = league)) + 
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  # add labels to know the exact total of teams for each league
+  geom_text(aes(label = n), hjust = 0) +
+  # add some color 
+  scale_fill_brewer(palette = "Dark2") + 
+  # add tittle and better names to x-y axis
+  labs(y = "Total of Teams by league", x = "Leagues Name", 
+       title = "UEFA Champions League has more teams in 2016")
+
+```
+
+After looking the number of teams in each league, since FA Women's Super League is the only league for women, it is interesting to analyze more about women's league and see what conclusions we can make about their teams.
+
+```{r}
+# transforming the data to know the probability that the macth result in a tie
+sub_soccer2 <- sub_soccer %>% 
+  group_by(season) %>% 
+  filter(league == "FA Women's Super League" & season == 2016) %>% 
+  dplyr::select(season, probtie, team1, team2) %>% 
+  pivot_longer(c("team1", "team2"), names_to = "teams", values_to = "team_name")
+  #pivot_longer(c("spi1", "spi2"), names_to = "spi", values_to = "spi_avg")
+
+# create a bar chart to compare the tie probability between teams match
+ggplot(sub_soccer2, aes(x = team_name, y = probtie, fill = teams)) + 
+  geom_bar(stat="identity", position=position_dodge()) + 
+  coord_flip()
+```
+
+This chart is not helpful, it is difficult to identify what the match for each game are. We need to analyze other variables that give us better outcomes. 
+
+We can start by combining the two teams match, and comparing the difference in the SPIs and the difference in the probabilities will win the match. The Soccer Power Index (SPI), it is designed to project which teams will have the most success going forward to the next game.
+
+```{r}
+# combine the teams match
+sub_soccer$comb_teams <- paste(sub_soccer$team1, "-", sub_soccer$team2)
+# calculate the difference in the SPIs between teams match
+sub_soccer$diff_spi <- sub_soccer$spi1 - sub_soccer$spi2
+# calculate the different in the probabilities will win the match
+sub_soccer$diff_prob <- sub_soccer$prob1 - sub_soccer$prob2
+
+# group by season and filter the women league and the season 2016
+sub_spi <- sub_soccer %>% 
+  group_by(season) %>% 
+  filter(league == "FA Women's Super League" & season == 2016)
+
+# create a text plot by showing the match teams to see the difference they have between SPIs and their probabilities to win
+ggplot(sub_spi, aes(x = diff_spi, y = diff_prob, label = comb_teams)) + 
+  geom_text(check_overlap = TRUE, size = 3) +
+  expand_limits(x = c(-40,20))
+```
+
+The team on the left side represents team1 or home team, and the team on the right side represents team2 or opposing team. By looking closer to each match team, it seems that `Chelsea FC Women` did a good job by playing in their home city and the city of their opponents as well in 2016.
+
+```{r}
+# this plot is the improvement of the previous plot by highlighting with blue color the team we are interested in
+ggplot(sub_spi, aes(x = diff_spi, y = diff_prob, label = comb_teams)) + 
+  # since we combined the 2 teams, it is not possible to highlight one of the teams 
+  # so we needed to create 2 geom_text for each team to make that possible
+  geom_text(aes(label = team2, color = team2=="Chelsea FC Women"), 
+            hjust = "left", check_overlap = TRUE, size = 3, nudge_x = 1.5) + 
+  geom_text(aes(label = team1, color = team1=="Chelsea FC Women"), hjust = "right", check_overlap = TRUE, size = 3) +
+  scale_color_manual(values = c("black", "blue"), guide = "none") +
+  expand_limits(x = c(-35,20)) +
+  # with the labs function we can add accurate information to understand the graph better
+  labs(x = "SPI difference by match game", y = "Difference in the probabilities to win the match", 
+       title = "Chelsea FC Women team had a positive progress going into \n each next game in season 2016", 
+       subtitle = "Each line represents a match game where the home team is on the left side of the line.") +
+  theme_classic(11) + 
+  # changing font size to polish the plot 
+  theme(plot.title = element_text(hjust = 0, face = "bold", size = 16),
+        plot.subtitle = element_text(hjust = 0))
+
+# first plot posted on the report
+ggsave("chelsea1.png")
+```
+
+Also, when the Chelsea FC Women team played in their home city, the probability that they would have won the game was positive and the games with the away teams were negative resulting in a biggest probability to win than the away team. On the other hand, if we look at the difference in the SPI, the Chelsea FC Women team had an overall positive impact going forward to the next game.
+
+Now, let's see if the total goals the teams scored during the season are reflecting that Chelsea FC Women team did a better job than the other teams.
+
+```{r}
+# since there are 2 columns for each team with their respectively scores, 
+# we need to manipulate the data by first separating team1 and team2 and adding their scores
+team1 <- sub_soccer %>% 
+  filter(league == "FA Women's Super League") %>% 
+  dplyr::select(season, team1, score1) %>% 
+  rename(team = team1, score = score1)
+
+team2 <- sub_soccer %>% 
+  filter(league == "FA Women's Super League") %>% 
+  dplyr::select(season, team2, score2) %>% 
+  rename(team = team2, score = score2)
+
+# Now we can combine the 2 teams to proceed to calculate their total scores
+scores <- bind_rows(team1, team2)
+scores
+
+soccer_scores <-scores %>% 
+  group_by(season, team) %>% 
+  dplyr::summarise(total_score = sum(score, na.rm = TRUE))
+
+# first we are creating a plot with the total goals each team scored in 2016
+soccer_scores %>% 
+  filter(season == 2016) %>% 
+  #arrange(desc(total_score)) %>% # I tried to reorder the total_score but it didn't work in ggplot
+  # in this case, the reorder function inside the mapping sort the team by total_score
+  ggplot(aes(x = reorder(team, total_score), y = total_score, fill = reorder(team, total_score))) + 
+  geom_bar(stat="identity") + 
+  # we decided to add the colors manually to highlight the team we are analyzing
+  scale_fill_manual(values = c("gray70", "gray60", "gray50", "gray40", "gray30","gray20","blue"), guide = "none") +
+  # labeling the total_score can give us the exact number of goals without guessing 
+  geom_text(aes(label = total_score), hjust = -0.2) +
+  # with the labs function we can add accurate information to understand the graph better
+  labs(y = "Total Score by Team", x = "FA Women's Super League Teams", 
+       title = "Chelsea FC Women team scored more goals than \nthe other teams in season 2016", 
+       subtitle = "Base on the total of games each team played (home games \nand away games)") +
+  coord_flip() + # flipping the coordinates help to read the teams better
+  theme_classic(12) + 
+  # cleaning the background a little bit, and changing font size to polish the plot 
+  theme(axis.ticks = element_blank(),
+        axis.text.x = element_blank(), # get rid of the numbers in the x axis
+        axis.line = element_blank(), # get rid of the lines x-y axis
+        plot.title = element_text(hjust = 0, face = "bold", size = 16),
+        plot.subtitle = element_text(hjust = 0))
+
+# second plot posted on the report
+ggsave("chelsea2.png")
+```
+
+Finally, I can analyze the performance of the teams over the years and make a conclusion of the Chelsea FC Women team.
+
+```{r}
+ggplot(soccer_scores, aes(x = season, y = total_score, color = team)) + 
+  geom_line() 
+```
+
+This plot is a little messy. There are some teams that did not play all the seasons from 2016 to 2020. We will emphasize on those teams that played all the seasons to have a better understanding of how the teams were progressing or not over the years.
+
+```{r}
+#install.packages("ggrepel")
+library(ggrepel)
+
+soccer_scores %>% 
+  filter(team %in% c("Chelsea FC Women", "Arsenal Women", "Birmingham City","Manchester City Women", "Reading")) %>% 
+  # reorder the teams by adding the Chelsea team on the top to manipulate better the graph
+  mutate(relevel_team = fct_relevel(team, 
+                            "Chelsea FC Women", "Arsenal Women", "Birmingham City","Manchester City Women", "Reading")) %>% 
+  ggplot(aes(x = season, y = total_score, color = relevel_team)) + 
+  # changing the size of the lines and adding a variety types of line to differentiate the teams
+  geom_line(aes(linetype = relevel_team),size = 0.6) +
+  # adding labels to recognize each team
+  geom_text_repel(aes(label = ifelse(season == 2020, team, NA)), nudge_x = 2, nudge_y = -1, na.rm = TRUE) +
+  # expanding the x-axis to have some space for the labels
+  xlim(2016, 2021) +
+  scale_y_continuous(breaks=seq(0, 70, by = 10)) +
+  scale_color_manual(values = c("blue", rep("black", 4))) +
+  # with the labs function we can add accurate information to understand the graph better
+  labs(x = "Yearly Season", y = "Total Score by Team", linetype = "FA Women's Super League \nTeams",
+       title = "The total goals scored by Chelsea FC Women team \nhas increased over the years", 
+       subtitle = "They did a better job during the seasons 2016, 2019, and 2020.") +
+  theme_classic(12) + 
+  #scale_x_continuous(breaks = NULL)
+  # changing font size to polish the plot 
+  theme(plot.title = element_text(hjust = 0, face = "bold", size = 16),
+        plot.subtitle = element_text(hjust = 0),
+        legend.position = "none")
+
+# third plot posted on the report
+ggsave("chelsea3.png")
+
+```
+
+We can conclude that Chelsea has progressed during the consecutive years and the seasons that they performed better was in 2016, 2019, and 2020.
+
+
